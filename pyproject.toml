@@ -1,3 +1,13 @@
+[project]
+name = "fast_api"
+version = "0.1.0"
+description = "FastAPI Playground"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi[standard]>=0.115.6",
+]
+
 [tool.ruff]
 [tool.ruff.format]
 quote-style = "single"

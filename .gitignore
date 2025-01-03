@@ -1,2 +1,2 @@
-.vscode/
-async_gist/
+.venv/
+uv.lock

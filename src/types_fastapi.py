@@ -3,12 +3,12 @@
 dictionary = {'name': 'John', 'age': 3, 'is_cowboy': True}
 
 
-def get_full_name(first_name: str, last_name: str):
+def get_full_name(first_name: str, last_name: str) -> str:
     full_name = first_name.lower() + ' ' + last_name.title()
     return full_name
 
 
-def get_name_age(first_name: str, last_name: str, age: int):
+def get_name_age(first_name: str, last_name: str, age: int) -> str:
     age_statement = (
         f'My name is {get_full_name(first_name, last_name)} and I am {age} years old.'
     )
@@ -23,7 +23,7 @@ def process_items(item: list[str]):
         print(f'item {counter}: {i.title()}')
 
 
-def process_dictionary(data: dict[str, int | str]):
+def process_dictionary(data: dict[str, int | str]) -> str:
     result: list = []
     for key, value in data.items():
         result.append(f'{key}: {value}')

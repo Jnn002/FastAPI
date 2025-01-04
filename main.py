@@ -1,8 +1,6 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-# comment change 2
-
 
 class Item(BaseModel):
     name: str

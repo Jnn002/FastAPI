@@ -32,6 +32,7 @@ fake_users_db = {
 # * Hashing means converting a string into another string. This is done for security reasons
 
 
+# * Modelos
 class Token(BaseModel):
     access_token: str
     token_type: str
@@ -42,6 +43,7 @@ class TokenData(BaseModel):
 
 
 class User(BaseModel):
+    # Modelo base para representar un usuario en nuestro sistema
     username: str
     email: str | None = None
     full_name: str | None = None
@@ -49,6 +51,7 @@ class User(BaseModel):
 
 
 class UserInDB(User):
+    # Subclase con la contraseña hasheada para uso interno en la base de datos
     hashed_password: str
 
 
@@ -60,14 +63,17 @@ app = FastAPI()
 
 
 def fake_hash_password(passoword: str):
+    # Función simulada para hash nuestras contraseñas, pendiente de implementación real
     return 'fakehashed' + passoword
 
 
 def veriry_password(plain_password, hashed_password):
+    # Verifica la contraseña en texto plano contra el hash
     return pwd_context.verify(plain_password, hashed_password)
 
 
 def get_password_hash(password):
+    # Obtiene el hash de la contraseña usando bcrypt
     return pwd_context.hash(password)
 
 
@@ -87,6 +93,17 @@ def authenticate_user(fake_db, username: str, password: str):
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None):
+    """
+    Crea un token de acceso desde los datos proporcionados.
+
+    Args:
+        data (dict): Información a codificar en el token.
+        expires_delta (timedelta | None, optional): Tiempo hasta que el token expire.
+            Si no se especifica, el token expira en 15 minutos.
+
+    Returns:
+        str: Token de acceso codificado en JWT.
+    """
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta

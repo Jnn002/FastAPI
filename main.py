@@ -1,181 +1,130 @@
-"""
-FastAPI Authentication Module
-This module implements a basic OAuth2 password authentication system with token-based access.
-"""
+import contextlib
 
-from datetime import datetime, timedelta, timezone
-from typing import Annotated
-
-import jwt
-from fastapi import Depends, FastAPI, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from jwt.exceptions import InvalidTokenError
-from passlib.context import CryptContext
-from pydantic import BaseModel
-
-# * To get a string like this run:
-# opensssl rand -hex 32 #* OpenSSL is available per default in git bash terminals
-SECRET_KEY = '06a21ee536de32f5a1aef18aed049e056ac94990307425112da47845f191b037'
-ALGORITHM = 'HS256'
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-
-
-fake_users_db = {
-    'johndoe': {
-        'username': 'johndoe',
-        'full_name': 'John Doe',
-        'email': 'johndoe@example.com',
-        'hashed_password': '$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW',
-        'disabled': False,
-    },
-}
-# * Hashing means converting a string into another string. This is done for security reasons
-
-
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-
-
-class TokenData(BaseModel):
-    username: str | None = None
-
-
-class User(BaseModel):
-    username: str
-    email: str | None = None
-    full_name: str | None = None
-    disabled: bool | None = None
-
-
-class UserInDB(User):
-    hashed_password: str
-
-
-pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl='token')
+from fastapi import FastAPI, HTTPException, Query
+from pymongo import MongoClient
+from bson import ObjectId
+from fastapi.encoders import jsonable_encoder
 
 app = FastAPI()
+client = MongoClient('mongodb://localhost:27017/')
+db = client['courses']
+
+"""
+Endpoint to get a list of all available courses. This endpoint needs to support 3 modes of
+sorting: Alphabetical (based on course title, ascending), date (descending) and total course
+rating (descending). Additionaly, this endpoint needs to support optional filtering of courses
+based on domain.
+"""
 
 
-def fake_hash_password(passoword: str):
-    return 'fakehashed' + passoword
-
-
-def veriry_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
-
-
-def get_password_hash(password):
-    return pwd_context.hash(password)
-
-
-def get_user(db, username: str):
-    if username in db:
-        user_dict = db[username]
-        return UserInDB(**user_dict)
-
-
-def authenticate_user(fake_db, username: str, password: str):
-    user = get_user(fake_db, username)
-    if not user:
-        return False
-    if not veriry_password(password, user.hashed_password):
-        return False
-    return user
-
-
-def create_access_token(data: dict, expires_delta: timedelta | None = None):
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
-    else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=15)
-    to_encode.update({'exp': expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-
-
-async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
-    """
-    Verifies the token and returns the current user.
-
-    Args:
-        token (str): Token obtained from the request
-
-    Returns:
-        User: The current user
-
-    Raises:
-        HTTPException: If token is invalid with status code 401
-    """
-    credential_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could't validate credentials succesfully",
-        headers={'WWW-Authenticate': 'Bearer'},
-    )
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get('sub')
-        if username is None:
-            raise credential_exception
-        token_data = TokenData(username=username)
-    except InvalidTokenError:
-        raise credential_exception
-    user = get_user(fake_users_db, username=token_data.username)
-    if user is None:
-        raise credential_exception
-    return user
-
-
-async def get_current_active_user(
-    current_user: Annotated[User, Depends(get_current_user)],
-):
-    """
-    Verifies if the current user is active in the system.
-
-    Args:
-        current_user (User): User object obtained from get_current_user dependency
-
-    Returns:
-        User: The current active user
-
-    Raises:
-        HTTPException: If user is disabled with status code 400
-    """
-    if current_user.disabled:
-        raise HTTPException(status_code=400, detail='Inactive user')
-    return current_user
-
-
-@app.post('/token')
-async def login_for_access_token(
-    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
-) -> Token:
-    user = authenticate_user(fake_users_db, form_data.username, form_data.password)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail='Incorrect Username or Password',
-            headers={'WWW-Authenticate': 'Bearer'},
+@app.get('/courses')
+def get_courses(sort_by: str = 'date', domain: str = None):
+    # set the rating.total and rating.count to all the courses based on the sum of the chapters rating
+    for course in db.courses.find():
+        total = 0
+        count = 0
+        for chapter in course['chapters']:
+            with contextlib.suppress(KeyError):
+                total += chapter['rating']['total']
+                count += chapter['rating']['count']
+        db.courses.update_one(
+            {'_id': course['_id']},
+            {'$set': {'rating': {'total': total, 'count': count}}},
         )
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={'sub': user.username}, expires_delta=access_token_expires
+
+    # sort_by == 'date' [DESCENDING]
+    if sort_by == 'date':
+        sort_field = 'date'
+        sort_order = -1
+
+    # sort_by == 'rating' [DESCENDING]
+    elif sort_by == 'rating':
+        sort_field = 'rating.total'
+        sort_order = -1
+
+    # sort_by == 'alphabetical' [ASCENDING]
+    else:
+        sort_field = 'name'
+        sort_order = 1
+
+    query = {}
+    if domain:
+        query['domain'] = domain
+
+    courses = db.courses.find(
+        query,
+        {'name': 1, 'date': 1, 'description': 1, 'domain': 1, 'rating': 1, '_id': 0},
+    ).sort(sort_field, sort_order)
+    return list(courses)
+
+
+"""
+Endpoint to get the course overview. 
+"""
+
+
+@app.get('/courses/{course_id}')
+def get_course(course_id: str):
+    course = db.courses.find_one(
+        {'_id': ObjectId(course_id)}, {'_id': 0, 'chapters': 0}
     )
-    return Token(access_token=access_token, token_type='bearer')
+    if not course:
+        raise HTTPException(status_code=404, detail='Course not found')
+    try:
+        course['rating'] = course['rating']['total']
+    except KeyError:
+        course['rating'] = 'Not rated yet'
+
+    return course
 
 
-@app.get('/users/me/', response_model=User)
-async def read_users_me(
-    current_user: Annotated[User, Depends(get_current_active_user)],
+""" 
+Endpoint to get a specific chapter information.
+"""
+
+
+@app.get('/courses/{course_id}/{chapter_id}')
+def get_chapter(course_id: str, chapter_id: str):
+    course = db.courses.find_one(
+        {'_id': ObjectId(course_id)},
+        {
+            '_id': 0,
+        },
+    )
+    if not course:
+        raise HTTPException(status_code=404, detail='Course not found')
+    chapters = course.get('chapters', [])
+    try:
+        chapter = chapters[int(chapter_id)]
+    except (ValueError, IndexError) as e:
+        raise HTTPException(status_code=404, detail='Chapter not found') from e
+    return chapter
+
+
+# Endpoint to allow users to rate each chapter (positive/negative) 1 for Positive, -1 For Negative, while aggregating all ratings for each course.
+@app.post('/courses/{course_id}/{chapter_id}')
+def rate_chapter(
+    course_id: str, chapter_id: str, rating: int = Query(..., gt=-2, lt=2)
 ):
-    return current_user
-
-
-@app.get('/users/me/items')
-async def read_own_items(
-    current_user: Annotated[User, Depends(get_current_active_user)],
-):
-    return [{'item_id': 'Foo', 'owner': current_user.username}]
+    course = db.courses.find_one(
+        {'_id': ObjectId(course_id)},
+        {
+            '_id': 0,
+        },
+    )
+    if not course:
+        raise HTTPException(status_code=404, detail='Course not found')
+    chapters = course.get('chapters', [])
+    try:
+        chapter = chapters[int(chapter_id)]
+    except (ValueError, IndexError) as e:
+        raise HTTPException(status_code=404, detail='Chapter not found') from e
+    try:
+        chapter['rating']['total'] += rating
+        chapter['rating']['count'] += 1
+    except KeyError:
+        chapter['rating'] = {'total': rating, 'count': 1}
+    db.courses.update_one(
+        {'_id': ObjectId(course_id)}, {'$set': {'chapters': chapters}}
+    )
+    return chapter

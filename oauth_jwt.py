@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 # * To get a string like this run:
 # opensssl rand -hex 32 #* OpenSSL is available per default in git bash terminals
-SECRET_KEY = '06a21ee536de5f191b037ed049e056ac94990307425112da47845f1e056ac9ac'
+SECRET_KEY = '06a21ee536de5f191b037ed049e026ac94990307425112da47845f1e056ac9ac'
 ALGORITHM = 'HS256'
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
